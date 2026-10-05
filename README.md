@@ -8,12 +8,12 @@ Skills for agents running under [Bishop](https://bishop.agentdeployment.co). Eac
 
 ## Adding a skill to an agent
 
-Run this from the root of the agent's repository, with `SKILL` set to the skill's directory name. The cookbook is private, so `gh` needs to be logged in as someone who can read it.
+Run this from the root of the agent's repository, with `SKILL` set to the skill's directory name.
 
 ```sh
 SKILL=bishop-memory
 src=$(mktemp -d)
-gh repo clone Agent-Deployment-Co/bishop-cookbook "$src" -- --quiet --depth 1
+git clone --quiet --depth 1 https://github.com/Agent-Deployment-Co/bishop-cookbook.git "$src"
 rm -rf ".agents/skills/$SKILL"
 mkdir -p .agents/skills .claude/skills
 cp -R "$src/$SKILL" ".agents/skills/$SKILL"
