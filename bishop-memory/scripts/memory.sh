@@ -21,15 +21,17 @@ Usage: memory.sh <command> [args]
   read <topic>                  print a topic
   search <text>                 lines mentioning text, case-insensitive
   history [topic] [-n N]        what was learned, newest first
-  save <topic> -m <msg> [--by <who>]
+  save <topic> -m <msg> [--by <who>] [--after <version>]
                                 replace a topic with stdin
-  forget <topic> -m <msg> [--by <who>]
+  forget <topic> -m <msg> [--by <who>] --after <version>
                                 remove a topic
   undo <commit> -m <msg> [--by <who>]
                                 put back what a change replaced
 
-Topics are lowercase letters, digits, and hyphens. Exit status 3 means the
-topic changed underneath you: read it again, merge, and retry.
+Topics are lowercase letters, digits, and hyphens. read reports a topic's
+version, and changing a topic that exists takes --after with that version.
+Exit status 3 means the topic changed since that read: read it again, merge,
+and retry.
 EOF
 }
 
@@ -82,6 +84,26 @@ check_topic() {
 # Blob id of path at rev, or "-" when the path is absent.
 blob_at() {
   git rev-parse -q --verify "$1:$2" 2>/dev/null || echo -
+}
+
+# What a writer read, checked against the topic as it is now. Compared here
+# rather than at push time, since a write landing between the agent's read and
+# its save is the one that would otherwise be lost.
+expect_read() {
+  local path=$1 current=$2
+  if [[ $current == - ]]; then
+    [[ -z $AFTER ]] && return
+    echo "bishop-memory: $path was removed since it was read" >&2
+    exit $CONFLICT
+  fi
+  if [[ -z $AFTER ]]; then
+    echo "bishop-memory: $path already exists; read it, merge, and pass --after with its version" >&2
+    exit $CONFLICT
+  fi
+  if [[ ${#AFTER} -lt 7 || $current != "$AFTER"* ]]; then
+    echo "bishop-memory: $path changed since it was read; read it again and retry" >&2
+    exit $CONFLICT
+  fi
 }
 
 summary() {
@@ -154,13 +176,15 @@ commit_changes() {
   die "gave up after $TRIES attempts: $BRANCH on $REMOTE kept moving"
 }
 
-# Parses -m and --by for the commands that write, leaving positionals in ARGS.
-MSG= BY= ARGS=()
+# Parses -m, --by, and --after for the commands that write, leaving
+# positionals in ARGS.
+MSG= BY= AFTER= ARGS=()
 parse_write_flags() {
   while (($#)); do
     case $1 in
       -m) MSG=${2:?-m needs a message}; shift 2 ;;
       --by) BY=${2:?--by needs a name}; shift 2 ;;
+      --after) AFTER=${2:?--after needs a version}; shift 2 ;;
       *) ARGS+=("$1"); shift ;;
     esac
   done
@@ -194,6 +218,8 @@ case $cmd in
     check_topic "$1"
     base=$(tip)
     git show "$base:$DIR/$1.md" 2>/dev/null || die "nothing remembered about $1"
+    # stderr, so stdout stays exactly the topic for the agent to merge into.
+    echo "bishop-memory: version $(git rev-parse --short=12 "$base:$DIR/$1.md")" >&2
     ;;
 
   search)
@@ -221,7 +247,7 @@ case $cmd in
 
   save)
     parse_write_flags "$@"
-    ((${#ARGS[@]} == 1)) || die "usage: save <topic> -m <message> [--by <who>] < content"
+    ((${#ARGS[@]} == 1)) || die "usage: save <topic> -m <message> [--by <who>] [--after <version>] < content"
     topic=${ARGS[0]}
     check_topic "$topic"
     content=$(mktemp)
@@ -230,18 +256,21 @@ case $cmd in
     [[ -n $(tr -d '[:space:]' <"$content") ]] || die "nothing on stdin to save; use forget to remove a topic"
     blob=$(git hash-object -w "$content")
     base=$(tip)
-    CHANGES=("$DIR/$topic.md"$'\t'"$blob"$'\t'"$(blob_at "$base" "$DIR/$topic.md")")
+    current=$(blob_at "$base" "$DIR/$topic.md")
+    expect_read "$DIR/$topic.md" "$current"
+    CHANGES=("$DIR/$topic.md"$'\t'"$blob"$'\t'"$current")
     commit_changes "$(message)" "$base"
     ;;
 
   forget)
     parse_write_flags "$@"
-    ((${#ARGS[@]} == 1)) || die "usage: forget <topic> -m <message> [--by <who>]"
+    ((${#ARGS[@]} == 1)) || die "usage: forget <topic> -m <message> [--by <who>] --after <version>"
     topic=${ARGS[0]}
     check_topic "$topic"
     base=$(tip)
     current=$(blob_at "$base" "$DIR/$topic.md")
     [[ $current != - ]] || die "nothing remembered about $topic"
+    expect_read "$DIR/$topic.md" "$current"
     CHANGES=("$DIR/$topic.md"$'\t'-$'\t'"$current")
     commit_changes "$(message)" "$base"
     ;;

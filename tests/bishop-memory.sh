@@ -34,11 +34,35 @@ ok "save leaves the checkout untouched"
 
 cd "$T/b"
 expect "another clone sees it" "billing: Billing" "$("$MEM" list)"
-expect "read" "Invoices go to finance@." "$("$MEM" read billing)"
+expect "read" "Invoices go to finance@." "$("$MEM" read billing 2>/dev/null)"
 expect "search is case-insensitive" "billing.md:3:- Invoices go to finance@." "$("$MEM" search INVOICES)"
 expect "search with no match" "Nothing remembered mentions that." "$("$MEM" search nowhere)"
 expect "history names the teacher" "Invoices go to finance@ (taught by Dana Lee)" "$("$MEM" history billing)"
-expect "unchanged save is a no-op" "Nothing changed" "$(printf '# Billing\n\n- Invoices go to finance@.\n' | "$MEM" save billing -m same)"
+
+# Writing over a topic takes the version that was read.
+ver() { "$MEM" read "$1" 2>&1 >/dev/null | awk '{ print $NF }'; }
+expect "read reports a version" "bishop-memory: version " "$("$MEM" read billing 2>&1 >/dev/null)"
+set +e
+printf '# Billing\n\n- x\n' | "$MEM" save billing -m blind 2>/dev/null
+status=$?
+set -e
+[[ $status == 3 ]] || fail "save over an unread topic exited $status, not 3"
+ok "save over an unread topic is a conflict"
+expect "unchanged save is a no-op" "Nothing changed" "$(printf '# Billing\n\n- Invoices go to finance@.\n' | "$MEM" save billing -m same --after "$(ver billing)")"
+
+# Thread A reads, thread B saves the same topic, then A saves its merge of
+# what it read: A must not overwrite B.
+stale=$(ver billing)
+cd "$T/a"
+printf '# Billing\n\n- Invoices go to finance@.\n- Net-30 terms.\n' | "$MEM" save billing -m "Net-30 terms" --after "$(ver billing)" >/dev/null
+cd "$T/b"
+set +e
+printf '# Billing\n\n- Invoices go to finance@.\n- Pay by wire.\n' | "$MEM" save billing -m "Pay by wire" --after "$stale" 2>/dev/null
+status=$?
+set -e
+[[ $status == 3 ]] || fail "stale save exited $status, not 3"
+ok "save after someone else's save of the same topic is a conflict"
+expect "the other thread's save survived" "Net-30 terms." "$("$MEM" read billing 2>/dev/null)"
 
 # A detached checkout, the way a Bishop snapshot is.
 git clone -q "$T/remote.git" "$T/snap"
@@ -60,22 +84,22 @@ expect "race keeps the other writer" "holidays: Holidays" "$list"
 expect "race keeps ours" "support: Support" "$list"
 
 # Undo puts back what a change replaced.
-printf '# Billing\n\n- Invoices go to accounts@.\n' | "$MEM" save billing -m "Invoices go to accounts@" >/dev/null
+printf '# Billing\n\n- Invoices go to accounts@.\n' | "$MEM" save billing -m "Invoices go to accounts@" --after "$(ver billing)" >/dev/null
 change=$("$MEM" history billing -n 1 | cut -d' ' -f1)
 "$MEM" undo "$change" -m "Put back finance@" >/dev/null
-expect "undo restores" "finance@" "$("$MEM" read billing)"
+expect "undo restores" "finance@" "$("$MEM" read billing 2>/dev/null)"
 
 # Undoing something that has since changed again is a conflict, not an overwrite.
-printf '# Billing\n\n- Invoices go to billing@.\n' | "$MEM" save billing -m "Invoices go to billing@" >/dev/null
+printf '# Billing\n\n- Invoices go to billing@.\n' | "$MEM" save billing -m "Invoices go to billing@" --after "$(ver billing)" >/dev/null
 set +e
 "$MEM" undo "$change" -m "stale" 2>/dev/null
 status=$?
 set -e
 [[ $status == 3 ]] || fail "stale undo exited $status, not 3"
 ok "stale undo is a conflict"
-expect "conflict left memory alone" "billing@" "$("$MEM" read billing)"
+expect "conflict left memory alone" "billing@" "$("$MEM" read billing 2>/dev/null)"
 
-"$MEM" forget shipping -m "No longer ship with Acme" >/dev/null
+"$MEM" forget shipping -m "No longer ship with Acme" --after "$(ver shipping)" >/dev/null
 [[ $("$MEM" list) != *shipping* ]] || fail "forget left the topic"
 ok "forget"
 
