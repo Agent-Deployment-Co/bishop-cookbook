@@ -127,19 +127,21 @@ expect_read() {
 # each file. Frontmatter is held to the Agent Skills fields, since a
 # harness-specific one like Claude's hooks or allowed-tools would let one
 # message grant itself commands or permissions in every later conversation.
+# Every unindented line must start with an allowed key, rather than any line
+# shaped like a disallowed one being refused, because YAML also reads a quoted
+# key or a space before the colon as that key.
 skill_files() {
-  local name=$1 dir=$2 f key fm
+  local name=$1 dir=$2 f line fm
   [[ -f $dir/SKILL.md ]] || die "$dir has no SKILL.md"
   fm=$(awk 'NR == 1 { if ($0 != "---") exit 1; next } /^---$/ { done = 1; exit } { print } END { if (!done) exit 1 }' "$dir/SKILL.md") ||
     die "SKILL.md must open with frontmatter between --- lines"
   [[ $(awk -F': *' '$1 == "name" { print $2 }' <<<"$fm") == "$name" ]] || die "SKILL.md must say name: $name"
   [[ -n $(awk -F': *' '$1 == "description" { print $2 }' <<<"$fm") ]] || die "SKILL.md needs a description"
-  while IFS= read -r key; do
-    case $key in
-      name | description | license | compatibility | metadata) ;;
-      *) die "SKILL.md frontmatter can't set $key; only name, description, license, compatibility, and metadata" ;;
-    esac
-  done < <(grep -E -o '^[A-Za-z_-]+:' <<<"$fm" | tr -d :)
+  while IFS= read -r line; do
+    [[ -z $line || $line == [[:space:]]* ]] && continue
+    [[ $line =~ ^(name|description|license|compatibility|metadata):([[:space:]]|$) ]] ||
+      die "SKILL.md frontmatter line '$line' isn't allowed; only name, description, license, compatibility, and metadata"
+  done <<<"$fm"
   [[ -z $(find "$dir" ! -type f ! -type d -print -quit) ]] || die "$dir may hold only files and directories"
   [[ ! -e $dir/.git ]] || die "$dir is a git repository"
   (cd "$dir" && find . -type f | sed 's|^\./||' | sort) | while IFS= read -r f; do
@@ -359,8 +361,12 @@ case $cmd in
     base=$(tip)
     current=$(blob_at "$base" "$SKILLS/$name")
     expect_read "$SKILLS/$name" "$current"
+    # A .claude/skills that is itself a link to .agents/skills already shows
+    # Claude every skill, and git can't hold a link inside a link.
+    shared=
+    [[ $(entry_at "$base" "$LINKS") == 120000* ]] && shared=1
     link=$(entry_at "$base" "$LINKS/$name")
-    [[ $link == - || $link == 120000* ]] ||
+    [[ -n $shared || $link == - || $link == 120000* ]] ||
       die "$LINKS/$name is not a link to $SKILLS/$name, so Claude would not load what's saved"
     CHANGES=("check"$'\t'"$SKILLS/$name"$'\t'"$current")
     if [[ $current != - ]]; then
@@ -371,8 +377,10 @@ case $cmd in
     while IFS=$'\t' read -r mode f; do
       CHANGES+=("put"$'\t'"$SKILLS/$name/$f"$'\t'"$mode"$'\t'"$(git hash-object -w -- "$dir/$f")")
     done <<<"$files"
-    CHANGES+=("check"$'\t'"$LINKS/$name"$'\t'"$(blob_at "$base" "$LINKS/$name")")
-    CHANGES+=("put"$'\t'"$LINKS/$name"$'\t'120000$'\t'"$(printf '../../%s/%s' "$SKILLS" "$name" | git hash-object -w --stdin)")
+    if [[ -z $shared ]]; then
+      CHANGES+=("check"$'\t'"$LINKS/$name"$'\t'"$(blob_at "$base" "$LINKS/$name")")
+      CHANGES+=("put"$'\t'"$LINKS/$name"$'\t'120000$'\t'"$(printf '../../%s/%s' "$SKILLS" "$name" | git hash-object -w --stdin)")
+    fi
     commit_changes "$(message)" "$base"
     ;;
 
@@ -404,8 +412,15 @@ case $cmd in
     git rev-parse -q --verify "$target^" >/dev/null || die "${ARGS[0]} has nothing before it to go back to"
     CHANGES=()
     while IFS= read -r path; do
+      # Under .claude/skills only the links skill-save writes are memory; a
+      # skill written there by hand is not.
       case $path in
-        "$DIR"/* | "$SKILLS"/*/* | "$LINKS"/*) ;;
+        "$DIR"/* | "$SKILLS"/*/*) ;;
+        "$LINKS"/*/*) die "${ARGS[0]} changed $path, which is not memory" ;;
+        "$LINKS"/*)
+          [[ $(entry_at "$target" "$path") == 120000* || $(entry_at "$target^" "$path") == 120000* ]] ||
+            die "${ARGS[0]} changed $path, which is not memory"
+          ;;
         *) die "${ARGS[0]} changed $path, which is not memory" ;;
       esac
       [[ $path != "$SKILLS/$SELF/"* && $path != "$LINKS/$SELF" ]] ||

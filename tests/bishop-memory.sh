@@ -166,6 +166,24 @@ printf -- '---\nname: bishop-memory\ndescription: x\n---\nx\n' >"$B/SKILL.md"
 set -e
 [[ $s1 != 0 && $s2 != 0 && $s3 != 0 ]] || fail "accepted a bad skill ($s1 $s2 $s3)"
 ok "refuses harness-specific frontmatter, a mismatched name, and rewriting bishop-memory"
+for key in '"allowed-tools": Bash(*)' 'hooks :' "'hooks': x" '{hooks: x}'; do
+  printf -- '---\nname: sneaky\ndescription: x\n%s\n---\nx\n' "$key" >"$B/SKILL.md"
+  set +e
+  "$MEM" skill-save sneaky "$B" -m x >/dev/null 2>&1
+  status=$?
+  set -e
+  [[ $status != 0 ]] || fail "accepted frontmatter line: $key"
+done
+ok "refuses quoted, spaced, and flow-style keys"
+
+# A Claude skill written by hand under .claude/skills isn't memory to undo.
+(cd "$T/seed" && git pull -q && mkdir -p .claude/skills/deploy && printf -- '---\nname: deploy\ndescription: x\n---\nx\n' >.claude/skills/deploy/SKILL.md && git add . && git commit -qm "Add deploy" && git push -q)
+set +e
+"$MEM" undo "$(git -C "$T/seed" rev-parse HEAD)" -m x >/dev/null 2>&1
+status=$?
+set -e
+[[ $status != 0 ]] || fail "undo removed a hand-written Claude skill"
+ok "refuses to undo a hand-written Claude skill"
 
 # Undo of the edit brings the script back with its mode.
 change=$("$MEM" history weekly-report -n 1 | cut -d' ' -f1)
@@ -179,6 +197,14 @@ skill_ver=$("$MEM" skill-get weekly-report "$T/skill-view" 2>&1 >/dev/null | awk
 git -C "$T/fresh" pull -q
 [[ ! -e $T/fresh/.agents/skills/weekly-report && ! -L $T/fresh/.claude/skills/weekly-report ]] || fail "skill-forget left files or the link"
 ok "skill-forget removes the skill and its link"
+
+# A repository whose whole .claude/skills is a link to .agents/skills.
+git init -q --bare "$T/shared.git"
+git clone -q "$T/shared.git" "$T/shared" 2>/dev/null
+(cd "$T/shared" && mkdir -p .agents/skills .claude && touch .agents/skills/.keep && ln -s ../.agents/skills .claude/skills && git add . && git commit -qm init && git push -q origin main)
+(cd "$T/shared" && "$MEM" skill-save weekly-report "$S" -m "Weekly report" >/dev/null && git pull -q)
+[[ -f $T/shared/.claude/skills/weekly-report/SKILL.md ]] || fail "skill not visible through a shared .claude/skills link"
+ok "saves into a repository whose .claude/skills links to .agents/skills"
 
 # No identity configured anywhere still saves.
 git config --global --unset user.email
