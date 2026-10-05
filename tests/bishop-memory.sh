@@ -184,6 +184,13 @@ status=$?
 set -e
 [[ $status != 0 ]] || fail "undo removed a hand-written Claude skill"
 ok "refuses to undo a hand-written Claude skill"
+(cd "$T/seed" && mkdir -p elsewhere/ops && ln -s ../../elsewhere/ops .claude/skills/ops && git add . && git commit -qm "Add ops" && git push -q)
+set +e
+"$MEM" undo "$(git -C "$T/seed" rev-parse HEAD)" -m x >/dev/null 2>&1
+status=$?
+set -e
+[[ $status != 0 ]] || fail "undo removed a hand-made Claude skill link"
+ok "refuses to undo a Claude skill link skill-save didn't write"
 
 # Undo of the edit brings the script back with its mode.
 change=$("$MEM" history weekly-report -n 1 | cut -d' ' -f1)
@@ -205,6 +212,13 @@ git clone -q "$T/shared.git" "$T/shared" 2>/dev/null
 (cd "$T/shared" && "$MEM" skill-save weekly-report "$S" -m "Weekly report" >/dev/null && git pull -q)
 [[ -f $T/shared/.claude/skills/weekly-report/SKILL.md ]] || fail "skill not visible through a shared .claude/skills link"
 ok "saves into a repository whose .claude/skills links to .agents/skills"
+(cd "$T/shared" && rm .claude/skills && ln -s ../elsewhere .claude/skills && git commit -qam "Point elsewhere" && git push -q)
+set +e
+(cd "$T/shared" && "$MEM" skill-save other-report "$S" -m x >/dev/null 2>&1)
+status=$?
+set -e
+[[ $status != 0 ]] || fail "saved through a .claude/skills link that points elsewhere"
+ok "refuses a .claude/skills link that points elsewhere"
 
 # No identity configured anywhere still saves.
 git config --global --unset user.email

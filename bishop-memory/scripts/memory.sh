@@ -149,6 +149,11 @@ skill_files() {
   done
 }
 
+# Whether path at rev is a symlink pointing at target.
+link_to() {
+  [[ $(entry_at "$1" "$2") == 120000* && $(git cat-file -p "$1:$2") == "$3" ]]
+}
+
 # Mode and object of path at rev as "mode<TAB>object", or "-" when absent.
 entry_at() {
   local e
@@ -364,7 +369,10 @@ case $cmd in
     # A .claude/skills that is itself a link to .agents/skills already shows
     # Claude every skill, and git can't hold a link inside a link.
     shared=
-    [[ $(entry_at "$base" "$LINKS") == 120000* ]] && shared=1
+    if [[ $(entry_at "$base" "$LINKS") == 120000* ]]; then
+      link_to "$base" "$LINKS" "../$SKILLS" || die "$LINKS links somewhere other than $SKILLS, so Claude would not load what's saved"
+      shared=1
+    fi
     link=$(entry_at "$base" "$LINKS/$name")
     [[ -n $shared || $link == - || $link == 120000* ]] ||
       die "$LINKS/$name is not a link to $SKILLS/$name, so Claude would not load what's saved"
@@ -418,7 +426,8 @@ case $cmd in
         "$DIR"/* | "$SKILLS"/*/*) ;;
         "$LINKS"/*/*) die "${ARGS[0]} changed $path, which is not memory" ;;
         "$LINKS"/*)
-          [[ $(entry_at "$target" "$path") == 120000* || $(entry_at "$target^" "$path") == 120000* ]] ||
+          want="../../$SKILLS/${path#"$LINKS"/}"
+          link_to "$target" "$path" "$want" || link_to "$target^" "$path" "$want" ||
             die "${ARGS[0]} changed $path, which is not memory"
           ;;
         *) die "${ARGS[0]} changed $path, which is not memory" ;;
