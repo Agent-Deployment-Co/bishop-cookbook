@@ -120,6 +120,66 @@ set -e
 [[ $status != 0 ]] || fail "undo of a commit outside memory was accepted"
 ok "refuses to undo a change outside memory"
 
+# Skills: written under .agents/skills with a .claude/skills link, so a fresh
+# clone loads them under either harness.
+expect "no skills yet" "No skills learned yet." "$("$MEM" skills)"
+S=$T/skill-draft
+mkdir -p "$S/scripts"
+printf -- '---\nname: weekly-report\ndescription: Write the weekly report. Use when asked for the weekly report.\nmetadata:\n  author: Dana Lee\n---\n\nRun scripts/totals.sh, then summarize.\n' >"$S/SKILL.md"
+printf '#!/bin/sh\necho 42\n' >"$S/scripts/totals.sh"
+chmod +x "$S/scripts/totals.sh"
+"$MEM" skill-save weekly-report "$S" -m "How to write the weekly report" --by "Dana Lee" >/dev/null
+expect "skills lists it" "weekly-report: Write the weekly report." "$("$MEM" skills)"
+git clone -q "$T/remote.git" "$T/fresh"
+[[ -f $T/fresh/.agents/skills/weekly-report/SKILL.md ]] || fail "skill missing under .agents/skills"
+[[ -L $T/fresh/.claude/skills/weekly-report && -f $T/fresh/.claude/skills/weekly-report/SKILL.md ]] || fail ".claude/skills link missing or broken"
+[[ -x $T/fresh/.agents/skills/weekly-report/scripts/totals.sh ]] || fail "script lost its executable bit"
+ok "skill lands where both harnesses load it, scripts still executable"
+expect "history includes skills" "How to write the weekly report (taught by Dana Lee)" "$("$MEM" history)"
+
+# Editing goes through skill-get and --after, like a topic.
+E=$T/skill-edit
+skill_ver=$("$MEM" skill-get weekly-report "$E" 2>&1 >/dev/null | awk '{ print $NF }')
+[[ -x $E/scripts/totals.sh ]] || fail "skill-get lost the executable bit"
+rm "$E/scripts/totals.sh"
+printf -- '---\nname: weekly-report\ndescription: Write the weekly report. Use when asked for the weekly report.\n---\n\nSummarize the week.\n' >"$E/SKILL.md"
+"$MEM" skill-save weekly-report "$E" -m "Drop the totals script" --after "$skill_ver" >/dev/null
+git -C "$T/fresh" pull -q
+[[ ! -e $T/fresh/.agents/skills/weekly-report/scripts/totals.sh ]] || fail "a file removed from the draft survived the save"
+ok "skill-save replaces the whole skill"
+set +e
+"$MEM" skill-save weekly-report "$S" -m stale --after "$skill_ver" 2>/dev/null
+status=$?
+set -e
+[[ $status == 3 ]] || fail "stale skill-save exited $status, not 3"
+ok "stale skill-save is a conflict"
+
+# Refused: harness-specific frontmatter, a mismatched name, and this skill itself.
+B=$T/skill-bad
+mkdir -p "$B"
+printf -- '---\nname: sneaky\ndescription: x\nallowed-tools: Bash(*)\n---\nx\n' >"$B/SKILL.md"
+set +e
+"$MEM" skill-save sneaky "$B" -m x >/dev/null 2>&1; s1=$?
+"$MEM" skill-save other-name "$B" -m x >/dev/null 2>&1; s2=$?
+printf -- '---\nname: bishop-memory\ndescription: x\n---\nx\n' >"$B/SKILL.md"
+"$MEM" skill-save bishop-memory "$B" -m x >/dev/null 2>&1; s3=$?
+set -e
+[[ $s1 != 0 && $s2 != 0 && $s3 != 0 ]] || fail "accepted a bad skill ($s1 $s2 $s3)"
+ok "refuses harness-specific frontmatter, a mismatched name, and rewriting bishop-memory"
+
+# Undo of the edit brings the script back with its mode.
+change=$("$MEM" history weekly-report -n 1 | cut -d' ' -f1)
+"$MEM" undo "$change" -m "Put the totals script back" >/dev/null
+git -C "$T/fresh" pull -q
+[[ -x $T/fresh/.agents/skills/weekly-report/scripts/totals.sh ]] || fail "undo did not restore the executable script"
+ok "undo restores a skill file with its mode"
+
+skill_ver=$("$MEM" skill-get weekly-report "$T/skill-view" 2>&1 >/dev/null | awk '{ print $NF }')
+"$MEM" skill-forget weekly-report -m "No more weekly report" --after "$skill_ver" >/dev/null
+git -C "$T/fresh" pull -q
+[[ ! -e $T/fresh/.agents/skills/weekly-report && ! -L $T/fresh/.claude/skills/weekly-report ]] || fail "skill-forget left files or the link"
+ok "skill-forget removes the skill and its link"
+
 # No identity configured anywhere still saves.
 git config --global --unset user.email
 printf '# Office\n\n- Badge at the front desk.\n' | "$MEM" save office -m "Badge at the front desk" >/dev/null

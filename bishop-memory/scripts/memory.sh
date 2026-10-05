@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Keeps what an agent learns as one Markdown file per topic under memory/ on
-# its repository's default branch, read from and written to the remote.
+# Keeps what an agent learns on its repository's default branch, read from and
+# written to the remote: one Markdown file per topic under memory/, and skills
+# under .agents/skills with a .claude/skills symlink to each, so both harnesses
+# load them.
 #
 # Writes never touch a checkout. Each one builds a commit with plumbing on top
 # of the remote tip and pushes it, so it works from a detached snapshot, from a
@@ -9,6 +11,9 @@
 set -euo pipefail
 
 DIR=memory
+SKILLS=.agents/skills
+LINKS=.claude/skills
+SELF=bishop-memory
 REMOTE=${BISHOP_MEMORY_REMOTE:-origin}
 TRIES=5
 CONFLICT=3
@@ -25,13 +30,19 @@ Usage: memory.sh <command> [args]
                                 replace a topic with stdin
   forget <topic> -m <msg> [--by <who>] --after <version>
                                 remove a topic
+  skills                        every skill and its description
+  skill-get <name> <dir>        copy a skill into an empty directory to edit
+  skill-save <name> <dir> -m <msg> [--by <who>] [--after <version>]
+                                replace a skill with a directory's contents
+  skill-forget <name> -m <msg> [--by <who>] --after <version>
+                                remove a skill
   undo <commit> -m <msg> [--by <who>]
                                 put back what a change replaced
 
-Topics are lowercase letters, digits, and hyphens. read reports a topic's
-version, and changing a topic that exists takes --after with that version.
-Exit status 3 means the topic changed since that read: read it again, merge,
-and retry.
+Topics and skill names are lowercase letters, digits, and single hyphens.
+read and skill-get report a version, and changing a topic or skill that exists
+takes --after with that version. Exit status 3 means it changed since that
+read: read it again, merge, and retry.
 EOF
 }
 
@@ -78,10 +89,16 @@ tip() {
 
 check_topic() {
   [[ $1 =~ ^[a-z0-9]+(-[a-z0-9]+)*$ && ${#1} -le 64 ]] ||
-    die "topic '$1' must be lowercase letters, digits, and single hyphens, at most 64 characters"
+    die "'$1' must be lowercase letters, digits, and single hyphens, at most 64 characters"
 }
 
-# Blob id of path at rev, or "-" when the path is absent.
+# This skill decides how everything else is kept, so chat can't rewrite it.
+check_skill() {
+  check_topic "$1"
+  [[ $1 != "$SELF" ]] || die "$SELF can't be changed from a conversation"
+}
+
+# Object id of path at rev (a blob or a tree), or "-" when the path is absent.
 blob_at() {
   git rev-parse -q --verify "$1:$2" 2>/dev/null || echo -
 }
@@ -106,6 +123,37 @@ expect_read() {
   fi
 }
 
+# Checks a skill directory the agent wrote, and prints "mode<TAB>relpath" for
+# each file. Frontmatter is held to the Agent Skills fields, since a
+# harness-specific one like Claude's hooks or allowed-tools would let one
+# message grant itself commands or permissions in every later conversation.
+skill_files() {
+  local name=$1 dir=$2 f key fm
+  [[ -f $dir/SKILL.md ]] || die "$dir has no SKILL.md"
+  fm=$(awk 'NR == 1 { if ($0 != "---") exit 1; next } /^---$/ { done = 1; exit } { print } END { if (!done) exit 1 }' "$dir/SKILL.md") ||
+    die "SKILL.md must open with frontmatter between --- lines"
+  [[ $(awk -F': *' '$1 == "name" { print $2 }' <<<"$fm") == "$name" ]] || die "SKILL.md must say name: $name"
+  [[ -n $(awk -F': *' '$1 == "description" { print $2 }' <<<"$fm") ]] || die "SKILL.md needs a description"
+  while IFS= read -r key; do
+    case $key in
+      name | description | license | compatibility | metadata) ;;
+      *) die "SKILL.md frontmatter can't set $key; only name, description, license, compatibility, and metadata" ;;
+    esac
+  done < <(grep -E -o '^[A-Za-z_-]+:' <<<"$fm" | tr -d :)
+  [[ -z $(find "$dir" ! -type f ! -type d -print -quit) ]] || die "$dir may hold only files and directories"
+  [[ ! -e $dir/.git ]] || die "$dir is a git repository"
+  (cd "$dir" && find . -type f | sed 's|^\./||' | sort) | while IFS= read -r f; do
+    if [[ -x $dir/$f ]]; then printf '100755\t%s\n' "$f"; else printf '100644\t%s\n' "$f"; fi
+  done
+}
+
+# Mode and object of path at rev as "mode<TAB>object", or "-" when absent.
+entry_at() {
+  local e
+  e=$(git ls-tree "$1" -- "$2" | awk '{ print $1 "\t" $3; exit }')
+  echo "${e:--}"
+}
+
 summary() {
   git show "$1:$2" | awk 'NF { sub(/^#+[ \t]*/, ""); print; exit }'
 }
@@ -120,21 +168,23 @@ ensure_identity() {
 }
 
 # Commits CHANGES on top of the remote tip and pushes, retrying from a fresh
-# tip when another writer got there first. Each change is
-# "path<TAB>new-blob<TAB>expected-blob", "-" meaning absent. A path whose blob
-# at the tip is not the expected one is a conflict rather than a retry,
-# because writing over it would lose what the other writer saved.
+# tip when another writer got there first. Each change is one of
+# "check<TAB>path<TAB>object", "put<TAB>path<TAB>mode<TAB>blob", or
+# "del<TAB>path", with "-" as the object of an absent path. A check that fails
+# is a conflict rather than a retry, because writing over the path would lose
+# what the other writer saved. Every path put or deleted sits under a checked
+# one, so a retry that passes its checks applies the same changes.
 CHANGES=()
 commit_changes() {
-  local message=$1 base=$2 attempt tree commit line path new expected
+  local message=$1 base=$2 attempt tree commit line op path a b
   local idx err
   idx=$(mktemp -u)
   err=$(mktemp)
   ensure_identity
   for ((attempt = 1; attempt <= TRIES; attempt++)); do
     for line in "${CHANGES[@]}"; do
-      IFS=$'\t' read -r path new expected <<<"$line"
-      if [[ $(blob_at "$base" "$path") != "$expected" ]]; then
+      IFS=$'\t' read -r op path a b <<<"$line"
+      if [[ $op == check && $(blob_at "$base" "$path") != "$a" ]]; then
         rm -f "$idx" "$err"
         echo "bishop-memory: $path changed since it was read; read it again and retry" >&2
         exit $CONFLICT
@@ -143,12 +193,11 @@ commit_changes() {
     rm -f "$idx"
     GIT_INDEX_FILE=$idx git read-tree "$base"
     for line in "${CHANGES[@]}"; do
-      IFS=$'\t' read -r path new expected <<<"$line"
-      if [[ $new == - ]]; then
-        GIT_INDEX_FILE=$idx git update-index --force-remove -- "$path"
-      else
-        GIT_INDEX_FILE=$idx git update-index --add --cacheinfo "100644,$new,$path"
-      fi
+      IFS=$'\t' read -r op path a b <<<"$line"
+      case $op in
+        put) GIT_INDEX_FILE=$idx git update-index --add --cacheinfo "$a,$b,$path" ;;
+        del) GIT_INDEX_FILE=$idx git update-index --force-remove -- "$path" ;;
+      esac
     done
     tree=$(GIT_INDEX_FILE=$idx git write-tree)
     if [[ $tree == $(git rev-parse "$base^{tree}") ]]; then
@@ -231,11 +280,11 @@ case $cmd in
     ;;
 
   history)
-    n=20 paths=("$DIR/")
+    n=20 paths=("$DIR/" "$SKILLS/")
     while (($#)); do
       case $1 in
         -n) n=${2:?-n needs a number}; shift 2 ;;
-        *) check_topic "$1"; paths=("$DIR/$1.md"); shift ;;
+        *) check_topic "$1"; paths=("$DIR/$1.md" "$SKILLS/$1/"); shift ;;
       esac
     done
     base=$(tip)
@@ -258,7 +307,7 @@ case $cmd in
     base=$(tip)
     current=$(blob_at "$base" "$DIR/$topic.md")
     expect_read "$DIR/$topic.md" "$current"
-    CHANGES=("$DIR/$topic.md"$'\t'"$blob"$'\t'"$current")
+    CHANGES=("check"$'\t'"$DIR/$topic.md"$'\t'"$current" "put"$'\t'"$DIR/$topic.md"$'\t'100644$'\t'"$blob")
     commit_changes "$(message)" "$base"
     ;;
 
@@ -271,7 +320,78 @@ case $cmd in
     current=$(blob_at "$base" "$DIR/$topic.md")
     [[ $current != - ]] || die "nothing remembered about $topic"
     expect_read "$DIR/$topic.md" "$current"
-    CHANGES=("$DIR/$topic.md"$'\t'-$'\t'"$current")
+    CHANGES=("check"$'\t'"$DIR/$topic.md"$'\t'"$current" "del"$'\t'"$DIR/$topic.md")
+    commit_changes "$(message)" "$base"
+    ;;
+
+  skills)
+    base=$(tip)
+    found=
+    while IFS= read -r path; do
+      [[ $path == "$SKILLS/$SELF" ]] && continue
+      git cat-file -e "$base:$path/SKILL.md" 2>/dev/null || continue
+      found=1
+      desc=$(git show "$base:$path/SKILL.md" | awk 'NR > 1 && /^---$/ { exit } /^description:/ { sub(/^description: */, ""); print; exit }')
+      printf '%s: %s\n' "$(basename "$path")" "$desc"
+    done < <(git ls-tree -d --name-only "$base" -- "$SKILLS/")
+    [[ -n $found ]] || echo "No skills learned yet."
+    ;;
+
+  skill-get)
+    (($# == 2)) || die "usage: skill-get <name> <dir>"
+    name=$1 dir=$2
+    check_topic "$name"
+    mkdir -p "$dir"
+    [[ -z $(ls -A "$dir") ]] || die "$dir is not empty"
+    base=$(tip)
+    git cat-file -e "$base:$SKILLS/$name" 2>/dev/null || die "no skill named $name"
+    git archive "$base:$SKILLS/$name" | tar -x -C "$dir"
+    echo "bishop-memory: version $(git rev-parse --short=12 "$base:$SKILLS/$name")" >&2
+    ;;
+
+  skill-save)
+    parse_write_flags "$@"
+    ((${#ARGS[@]} == 2)) || die "usage: skill-save <name> <dir> -m <message> [--by <who>] [--after <version>]"
+    name=${ARGS[0]} dir=${ARGS[1]}
+    check_skill "$name"
+    [[ -d $dir ]] || die "no directory $dir"
+    files=$(skill_files "$name" "$dir")
+    base=$(tip)
+    current=$(blob_at "$base" "$SKILLS/$name")
+    expect_read "$SKILLS/$name" "$current"
+    link=$(entry_at "$base" "$LINKS/$name")
+    [[ $link == - || $link == 120000* ]] ||
+      die "$LINKS/$name is not a link to $SKILLS/$name, so Claude would not load what's saved"
+    CHANGES=("check"$'\t'"$SKILLS/$name"$'\t'"$current")
+    if [[ $current != - ]]; then
+      while IFS= read -r path; do
+        CHANGES+=("del"$'\t'"$path")
+      done < <(git ls-tree -r --name-only "$base" -- "$SKILLS/$name/")
+    fi
+    while IFS=$'\t' read -r mode f; do
+      CHANGES+=("put"$'\t'"$SKILLS/$name/$f"$'\t'"$mode"$'\t'"$(git hash-object -w -- "$dir/$f")")
+    done <<<"$files"
+    CHANGES+=("check"$'\t'"$LINKS/$name"$'\t'"$(blob_at "$base" "$LINKS/$name")")
+    CHANGES+=("put"$'\t'"$LINKS/$name"$'\t'120000$'\t'"$(printf '../../%s/%s' "$SKILLS" "$name" | git hash-object -w --stdin)")
+    commit_changes "$(message)" "$base"
+    ;;
+
+  skill-forget)
+    parse_write_flags "$@"
+    ((${#ARGS[@]} == 1)) || die "usage: skill-forget <name> -m <message> [--by <who>] --after <version>"
+    name=${ARGS[0]}
+    check_skill "$name"
+    base=$(tip)
+    current=$(blob_at "$base" "$SKILLS/$name")
+    [[ $current != - ]] || die "no skill named $name"
+    expect_read "$SKILLS/$name" "$current"
+    CHANGES=("check"$'\t'"$SKILLS/$name"$'\t'"$current")
+    while IFS= read -r path; do
+      CHANGES+=("del"$'\t'"$path")
+    done < <(git ls-tree -r --name-only "$base" -- "$SKILLS/$name/")
+    if [[ $(entry_at "$base" "$LINKS/$name") == 120000* ]]; then
+      CHANGES+=("check"$'\t'"$LINKS/$name"$'\t'"$(blob_at "$base" "$LINKS/$name")" "del"$'\t'"$LINKS/$name")
+    fi
     commit_changes "$(message)" "$base"
     ;;
 
@@ -284,8 +404,19 @@ case $cmd in
     git rev-parse -q --verify "$target^" >/dev/null || die "${ARGS[0]} has nothing before it to go back to"
     CHANGES=()
     while IFS= read -r path; do
-      [[ $path == "$DIR"/* ]] || die "${ARGS[0]} changed $path, which is not memory"
-      CHANGES+=("$path"$'\t'"$(blob_at "$target^" "$path")"$'\t'"$(blob_at "$target" "$path")")
+      case $path in
+        "$DIR"/* | "$SKILLS"/*/* | "$LINKS"/*) ;;
+        *) die "${ARGS[0]} changed $path, which is not memory" ;;
+      esac
+      [[ $path != "$SKILLS/$SELF/"* && $path != "$LINKS/$SELF" ]] ||
+        die "${ARGS[0]} changed $SELF, which can't be changed from a conversation"
+      CHANGES+=("check"$'\t'"$path"$'\t'"$(blob_at "$target" "$path")")
+      before=$(entry_at "$target^" "$path")
+      if [[ $before == - ]]; then
+        CHANGES+=("del"$'\t'"$path")
+      else
+        CHANGES+=("put"$'\t'"$path"$'\t'"$before")
+      fi
     done < <(git diff-tree --no-commit-id --name-only -r "$target")
     ((${#CHANGES[@]})) || die "${ARGS[0]} changed nothing"
     commit_changes "$(message)" "$base"

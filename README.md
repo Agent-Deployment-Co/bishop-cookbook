@@ -6,7 +6,9 @@ Skills and recipes for agents running under [Bishop](https://bishop.agentdeploym
 
 Lets an agent remember what people teach it across every conversation, without anyone handling git. People say "remember that invoices go to finance@" or "what do you know about billing", and the agent keeps one Markdown note per topic under `memory/` on its repository's default branch. Every save is a commit that says what was learned and who taught it, so the history is a log of what the agent was taught and any change can be undone.
 
-The agent writes straight to the remote's default branch without touching its checkout. A note survives the thread branch Bishop deletes later, and with `--auto-update` a new thread starts on a commit that already holds it. Two threads saving at once both keep what they saved.
+People can also teach it how to do a task. The agent saves that as a skill under `.agents/skills/<name>/`, with a `.claude/skills/<name>` link so either harness loads it. A taught skill's frontmatter is limited to the Agent Skills fields, so a message can't hand itself Claude's `hooks` or `allowed-tools`, and `bishop-memory` itself can't be rewritten from chat.
+
+The agent writes straight to the remote's default branch without touching its checkout. A note survives the thread branch Bishop deletes later, and two threads saving at once both keep what they saved. Notes are read from the remote, so every thread sees a new one at once. A skill is loaded from the files a thread starts on, so it reaches new threads only once Bishop runs that commit: with a git URL and `--auto-update`, the next new thread; otherwise after the agent's checkout is updated and Bishop restarted.
 
 ### Adding it to an agent
 
