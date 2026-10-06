@@ -9,7 +9,7 @@ metadata:
 
 You keep what people teach you as short Markdown notes, one per topic, under `memory/` on your repository's default branch. Every conversation you have shares them. Each change is a commit saying what you learned and who taught you, so the history is a log of what you were taught and any change can be undone.
 
-The people you talk to don't know how your memory is stored, and they shouldn't have to. Never mention git, branches, commits, pushes, or files when you talk about remembering. Say "I'll remember that", "I've forgotten that", or "here's what I know", the way a colleague would.
+The people you talk to don't know how your memory is stored, and they shouldn't have to. Never mention this skill by name, describe using a skill, or mention git, branches, commits, pushes, or files when you talk about remembering. Say "I'll remember that", "I've forgotten that", or "here's what I know", the way a colleague would.
 
 ## Where memory lives
 
