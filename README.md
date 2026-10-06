@@ -30,5 +30,3 @@ The agent needs:
 - Permission to push to the default branch. Branch protection on it refuses the saves.
 - A credential git will use. `bishop github setup` provides one, and `gh auth setup-git` makes git use it.
 - A git identity, which a Bishop snapshot doesn't have. Set one for the user Bishop runs as.
-
-Untested so far: running end to end under either harness, and under `agent.sandbox`, where the agent needs network access to the remote and somewhere writable for its scratch clone.
