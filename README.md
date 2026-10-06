@@ -8,27 +8,17 @@ Skills for agents running under [Bishop](https://bishop.agentdeployment.co). Eac
 
 ## Adding a skill to an agent
 
-Run this from the root of the agent's repository, with `SKILL` set to the skill's directory name.
+Ask the agent to install a skill from this repository by name, or do it yourself from the root of the agent's repository:
 
-```sh
-SKILL=bishop-memory
-src=$(mktemp -d)
-git clone --quiet --depth 1 https://github.com/Agent-Deployment-Co/bishop-cookbook.git "$src"
-rm -rf ".agents/skills/$SKILL"
-mkdir -p .agents/skills .claude/skills
-cp -R "$src/$SKILL" ".agents/skills/$SKILL"
-ln -sfn "../../.agents/skills/$SKILL" ".claude/skills/$SKILL"
-rm -rf "$src"
-git add ".agents/skills/$SKILL" ".claude/skills/$SKILL"
-git commit -m "Add the $SKILL skill from bishop-cookbook"
-git push
-```
+1. Copy the skill's directory to `.agents/skills/<skill>`, replacing any copy already there.
+2. Symlink `.claude/skills/<skill>` to `../../.agents/skills/<skill>`.
+3. Commit both paths and push.
 
 The skill lives once, in `.agents/skills`, where Codex loads skills. The symlink in `.claude/skills` lets Claude load the same copy, so either harness works and the two never drift.
 
 The agent picks the skill up once Bishop runs the commit holding it. With a git URL agent and `--auto-update`, that is the next new thread. Otherwise, update the agent's checkout and restart Bishop.
 
-To update a skill, run the same steps again. The `rm -rf` first means a file the cookbook deleted is deleted from the agent too. To remove one, delete both paths and commit.
+To update a skill, follow the same steps. Replacing the directory rather than copying over it means a file the cookbook deleted is deleted from the agent too. To remove a skill, delete both paths and commit.
 
 ## bishop-memory
 
