@@ -21,4 +21,6 @@ Tests for a skill's scripts go in `test/<skill>/`, never inside the skill's dire
 
 ## Docs
 
-The README lists every skill and says what each needs from the agent's repository and host. A change an operator would notice updates it. Writing follows Bishop's rules in its `CLAUDE.md`: no em-dashes, lead with the effect, and cut what doesn't carry weight.
+The README lists every skill and says what each needs from the agent's repository and host. A change an operator would notice updates it.
+
+Write plainly and briefly, in active voice, leading with what something does before how. No em-dashes, no filler, and no hard-wrapped markdown: one paragraph is one line.
