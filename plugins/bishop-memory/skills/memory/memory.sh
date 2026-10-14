@@ -21,16 +21,22 @@ branch=${AGENT_MEMORY_BRANCH:-memory}
 mem=${AGENT_MEMORY_HOME:-}
 
 # Clones the memory branch of the agent's own repository on first use. The
-# lock keeps two conversations from cloning into one directory at once.
+# lock keeps two conversations from cloning at once, and cloning beside the
+# checkout then renaming it means a clone killed partway leaves nothing at
+# $mem that the next run would mistake for a checkout.
 clone() {
-  local origin=$1 out
-  mkdir -p "$(dirname "$mem")" || die "couldn't create the directory holding $mem"
-  exec 8>"$(dirname "$mem")/.$(basename "$mem").lock"
+  local origin=$1 parent name out
+  parent=$(dirname "$mem")
+  name=$(basename "$mem")
+  mkdir -p "$parent" || die "couldn't create $parent to hold memory"
   command -v flock >/dev/null || die 'flock is not installed'
+  exec 8>"$parent/.$name.lock"
   flock -w 120 8 || die 'another conversation has been setting up memory for two minutes; try again shortly'
-  if [ ! -e "$mem" ] && ! out=$(git clone --quiet --single-branch --branch "$branch" -- "$origin" "$mem" 2>&1); then
-    rm -rf -- "$mem"
-    die "couldn't clone the $branch branch of $origin into $mem: $out"
+  if [ ! -e "$mem" ]; then
+    rm -rf -- "$parent/.$name.cloning"
+    out=$(git clone --quiet --single-branch --branch "$branch" -- "$origin" "$parent/.$name.cloning" 2>&1) ||
+      die "couldn't clone the $branch branch of $origin into $mem: $out"
+    mv -- "$parent/.$name.cloning" "$mem"
   fi
   exec 8>&-
 }

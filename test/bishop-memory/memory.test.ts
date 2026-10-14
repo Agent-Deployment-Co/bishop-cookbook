@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { chmod, readdir, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { bareRemote, clone, git, tempDir } from '../support/git.js'
@@ -396,6 +396,17 @@ describe('where memory lives', () => {
     expect(result.code).toBe(1)
     expect(result.stderr).toContain(join(data, 'bishop-memory', 'acme-agent'))
     expect(existsSync(join(data, 'bishop-memory', 'acme-agent'))).toBe(false)
+  })
+
+  it('recovers from a clone that was killed partway', async () => {
+    const remote = await bareRemote(BRANCH)
+    const agent = await agentRepo(remote)
+    const data = await tempDir('cookbook-data-')
+    const name = `${basename(dirname(remote))}-remote`
+    await mkdir(join(data, 'bishop-memory', `.${name}.cloning`, '.git'), { recursive: true })
+    const result = await memory(agent, ['path'], { XDG_DATA_HOME: data })
+    expect(result.code).toBe(0)
+    expect(await git(result.stdout.trim(), 'branch', '--show-current')).toBe(BRANCH)
   })
 
   it('clones once when two conversations start at the same moment', async () => {
