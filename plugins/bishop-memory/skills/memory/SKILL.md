@@ -1,5 +1,5 @@
 ---
-name: bishop-memory
+name: memory
 description: Remember, recall, and forget what you learn from the people you work with, so it carries into every future conversation. Use when someone says "remember", "don't forget", "keep in mind", "from now on", "forget", "what do you know about", or "what did you learn", when they correct something you knew, or when a question might depend on something you were told before.
 metadata:
   source: https://github.com/Agent-Deployment-Co/bishop-cookbook

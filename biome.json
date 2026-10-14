@@ -1,6 +1,15 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
-  "files": { "includes": ["test/**/*.ts", "*.ts", "*.json"] },
+  "files": {
+    "includes": [
+      "test/**/*.ts",
+      "*.ts",
+      "*.json",
+      "**/.claude-plugin/*.json",
+      "**/.codex-plugin/*.json",
+      ".agents/plugins/*.json"
+    ]
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",

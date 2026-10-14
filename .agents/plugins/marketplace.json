@@ -1,0 +1,12 @@
+{
+  "name": "bishop-cookbook",
+  "interface": { "displayName": "Bishop Cookbook" },
+  "plugins": [
+    {
+      "name": "bishop-memory",
+      "source": { "source": "local", "path": "./plugins/bishop-memory" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}

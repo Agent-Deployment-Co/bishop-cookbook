@@ -1,0 +1,12 @@
+{
+  "name": "bishop-cookbook",
+  "owner": { "name": "Agent Deployment Co" },
+  "metadata": { "description": "Plugins for agents running under Bishop." },
+  "plugins": [
+    {
+      "name": "bishop-memory",
+      "source": "./plugins/bishop-memory",
+      "description": "Remembers what people teach the agent across every conversation, kept as Markdown notes on a memory branch apart from the agent's own files."
+    }
+  ]
+}
