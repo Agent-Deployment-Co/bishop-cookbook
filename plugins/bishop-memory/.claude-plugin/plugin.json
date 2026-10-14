@@ -1,6 +1,6 @@
 {
   "name": "bishop-memory",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Remembers what people teach the agent across every conversation, kept as Markdown notes on a memory branch apart from the agent's own files.",
   "author": {
     "name": "Agent Deployment Co"
