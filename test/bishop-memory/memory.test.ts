@@ -19,7 +19,7 @@ interface Host {
 
 function host(dir: string): Host {
   const memory = (args: string[], input?: string) =>
-    runScript('bishop-memory', 'memory.sh', args, {
+    runScript('bishop-memory', 'bishop-memory', 'memory.sh', args, {
       env: { AGENT_MEMORY: dir },
       ...(input === undefined ? {} : { input }),
     })
@@ -223,7 +223,7 @@ describe('conflicts with changes made elsewhere', () => {
     // Git exports GIT_DIR to hooks, which would point b's git at a.
     const raced = join(await tempDir(), 'raced')
     const hook = join(a.dir, '.git', 'hooks', 'pre-push')
-    const script = skillScript('bishop-memory', 'memory.sh')
+    const script = skillScript('bishop-memory', 'bishop-memory', 'memory.sh')
     await writeFile(
       hook,
       [
@@ -326,17 +326,29 @@ describe('undo', () => {
 
 describe('setup problems', () => {
   it('fails when AGENT_MEMORY is unset', async () => {
-    const result = await runScript('bishop-memory', 'memory.sh', ['version', 'billing'], {
-      env: { AGENT_MEMORY: '' },
-    })
+    const result = await runScript(
+      'bishop-memory',
+      'bishop-memory',
+      'memory.sh',
+      ['version', 'billing'],
+      {
+        env: { AGENT_MEMORY: '' },
+      },
+    )
     expect(result.code).toBe(1)
     expect(result.stderr).toContain('AGENT_MEMORY is not set')
   })
 
   it('fails when AGENT_MEMORY is not a git checkout', async () => {
-    const result = await runScript('bishop-memory', 'memory.sh', ['version', 'billing'], {
-      env: { AGENT_MEMORY: await tempDir() },
-    })
+    const result = await runScript(
+      'bishop-memory',
+      'bishop-memory',
+      'memory.sh',
+      ['version', 'billing'],
+      {
+        env: { AGENT_MEMORY: await tempDir() },
+      },
+    )
     expect(result.code).toBe(1)
     expect(result.stderr).toContain('not a git checkout')
   })

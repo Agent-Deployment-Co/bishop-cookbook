@@ -8,9 +8,9 @@ import { join, resolve } from 'node:path'
 
 export const ROOT = resolve(import.meta.dirname, '..', '..')
 
-/** The path to a script inside a skill's directory. */
-export function skillScript(skill: string, name: string): string {
-  return join(ROOT, skill, name)
+/** The path to a script inside a plugin's skill. */
+export function skillScript(plugin: string, skill: string, name: string): string {
+  return join(ROOT, 'plugins', plugin, 'skills', skill, name)
 }
 
 export interface Result {
@@ -61,10 +61,11 @@ export function run(command: string, args: string[], options: RunOptions = {}): 
 
 /** Runs a skill's script with `bash`. */
 export function runScript(
+  plugin: string,
   skill: string,
   name: string,
   args: string[],
   options: RunOptions = {},
 ): Promise<Result> {
-  return run('bash', [skillScript(skill, name), ...args], options)
+  return run('bash', [skillScript(plugin, skill, name), ...args], options)
 }
