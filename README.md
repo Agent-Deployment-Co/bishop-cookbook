@@ -80,16 +80,26 @@ git commit --allow-empty -m "Start memory"
 git push origin memory
 ```
 
-Then on each host that runs the agent:
+Then on each host that runs the agent, make sure the user Bishop runs as has a git identity (`git config --global user.name` and `user.email`) and can push to the agent's repository. `bishop github setup` provides a credential, and `gh auth setup-git` makes git use it.
 
-1. Clone the branch somewhere outside both the agent's directory and Bishop's home, like `git clone --branch memory --single-branch <agent repository URL> /srv/agent-memory`.
-2. Give that checkout a git identity with `git config user.name` and `user.email`, and make sure pushing from it works as the user Bishop runs as. `bishop github setup` provides a credential, and `gh auth setup-git` makes git use it.
-3. Add `AGENT_MEMORY=/srv/agent-memory` to Bishop's `.env` and restart Bishop.
-4. Under `agent.sandbox`, grant the checkout read and write in the nono profile Bishop uses. Bishop's own grants don't reach it.
+That's all. The first time the agent reads or saves memory, `memory.sh` clones the branch from the `origin` of the agent's working directory into `~/.local/share/bishop-memory/<owner>-<repo>`, or under `$XDG_DATA_HOME` when that is set. A branch that doesn't exist yet fails the clone, and the agent tells people it can't remember things yet.
+
+Under `agent.sandbox`, grant `~/.local/share/bishop-memory` read and write in the nono profile Bishop uses. Bishop's own grants don't reach it.
 
 The host needs `flock`, which util-linux provides on Linux. On macOS, install it with Homebrew.
 
 With more than one host, each pulls the others' notes only when it saves, so a host that hasn't saved lately reads older notes.
+
+### Settings
+
+Both are optional, set in Bishop's `.env`, and take effect when Bishop restarts.
+
+| Variable | Default | What it sets |
+|---|---|---|
+| `AGENT_MEMORY_HOME` | `~/.local/share/bishop-memory/<owner>-<repo>` | Where the memory checkout lives. A directory you name here must already be a checkout of the branch, since `memory.sh` clones only into the default. |
+| `AGENT_MEMORY_BRANCH` | `memory` | The branch memory lives on. `memory.sh` refuses a checkout of any other branch. |
+
+Version 1 of this plugin read `AGENT_MEMORY`. Rename it to `AGENT_MEMORY_HOME`, or delete it to use the default.
 
 ### Moving from notes on the default branch
 
