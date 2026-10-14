@@ -52,6 +52,9 @@ export function run(command: string, args: string[], options: RunOptions = {}): 
     })
     child.on('error', fail)
     child.on('close', (code) => done({ code: code ?? -1, stdout, stderr }))
+    // A script that never reads its input can exit before the write lands,
+    // which fails with EPIPE. The exit status is the result that matters.
+    child.stdin.on('error', () => {})
     child.stdin.end(options.input ?? '')
   })
 }
