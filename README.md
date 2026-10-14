@@ -1,6 +1,6 @@
 # Bishop Cookbook
 
-Skills for agents running under [Bishop](https://bishop.agentdeployment.co). Each top-level directory is one skill, copied into an agent's repository as it is.
+Skills for agents running under [Bishop](https://bishop.agentdeployment.co). Each top-level directory except `test` is one skill, copied into an agent's repository as it is.
 
 | Skill | What it does |
 |---|---|
@@ -19,6 +19,17 @@ The skill lives once, in `.agents/skills`, where Codex loads skills. The symlink
 The agent picks the skill up once Bishop runs the commit holding it. With a git URL agent and `--auto-update`, that is the next new thread. Otherwise, update the agent's checkout and restart Bishop.
 
 To update a skill, follow the same steps. Replacing the directory rather than copying over it means a file the cookbook deleted is deleted from the agent too. To remove a skill, delete both paths and commit.
+
+## Testing a skill's scripts
+
+A script a skill ships gets tests in `test/<skill>/`, outside the skill's directory so they never reach an agent. The setup is Bishop's: vitest for tests, Biome for linting and formatting, and `tsc` for typechecking, all run by `npm run check`, which CI runs on every pull request. Node 24 or later.
+
+```sh
+npm install
+npm run check
+```
+
+A test runs the script the way an agent does, with `runScript` in `test/support/script.ts`, and asserts on its exit status, output, and what it left on disk. `test/support/git.ts` makes real repositories in temp directories, with a bare repository on a local path standing in for the remote, so nothing reaches the network. Both run git with the developer's own git config shut out.
 
 ## bishop-memory
 
