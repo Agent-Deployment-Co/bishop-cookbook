@@ -1,35 +1,68 @@
 # Bishop Cookbook
 
-Skills for agents running under [Bishop](https://bishop.agentdeployment.co). Each top-level directory except `test` is one skill, copied into an agent's repository as it is.
+Plugins for agents running under [Bishop](https://bishop.agentdeployment.co). The repository is one plugin marketplace, `bishop-cookbook`, that Claude and Codex both install from. Each directory in `plugins/` is one plugin.
 
-| Skill | What it does |
+| Plugin | What it does |
 |---|---|
-| [`bishop-memory`](bishop-memory/SKILL.md) | Remembers what people teach the agent across every conversation, kept as Markdown notes on a `memory` branch apart from the agent's own files. |
+| [`bishop-memory`](plugins/bishop-memory/skills/bishop-memory/SKILL.md) | Remembers what people teach the agent across every conversation, kept as Markdown notes on a `memory` branch apart from the agent's own files. |
 
-## Adding a skill to an agent
+## Adding a plugin to an agent
 
-Ask the agent to install a skill from this repository by name, or do it yourself from the root of the agent's repository:
+Declare the plugin in the agent's repository, pinned to a commit of this one, and commit the change. Bishop installs it on the first turn of each new thread. [Harness configuration](https://bishop.agentdeployment.co/running/harness) covers how Bishop applies the agent's settings and plugins.
 
-1. Copy the skill's directory to `.agents/skills/<skill>`, replacing any copy already there.
-2. Symlink `.claude/skills/<skill>` to `../../.agents/skills/<skill>`.
-3. Commit both paths and push.
+For Claude, in `.claude/settings.json`:
 
-The skill lives once, in `.agents/skills`, where Codex loads skills. The symlink in `.claude/skills` lets Claude load the same copy, so either harness works and the two never drift.
+```json
+{
+  "extraKnownMarketplaces": {
+    "bishop-cookbook": {
+      "source": {
+        "source": "settings",
+        "name": "bishop-cookbook",
+        "plugins": [
+          {
+            "name": "bishop-memory",
+            "source": {
+              "source": "git-subdir",
+              "url": "https://github.com/Agent-Deployment-Co/bishop-cookbook.git",
+              "path": "plugins/bishop-memory",
+              "sha": "<commit>"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "enabledPlugins": { "bishop-memory@bishop-cookbook": true }
+}
+```
 
-The agent picks the skill up once Bishop runs the commit holding it. With a git URL agent and `--auto-update`, that is the next new thread. Otherwise, update the agent's checkout and restart Bishop.
+For Codex, in `.codex/config.toml`:
 
-To update a skill, follow the same steps. Replacing the directory rather than copying over it means a file the cookbook deleted is deleted from the agent too. To remove a skill, delete both paths and commit.
+```toml
+[marketplaces.bishop-cookbook]
+source_type = "git"
+source = "https://github.com/Agent-Deployment-Co/bishop-cookbook.git"
+ref = "<commit>"
 
-## Testing a skill's scripts
+[plugins."bishop-memory@bishop-cookbook"]
+enabled = true
+```
 
-A script a skill ships gets tests in `test/<skill>/`, outside the skill's directory so they never reach an agent. The setup is Bishop's: vitest for tests, Biome for linting and formatting, and `tsc` for typechecking, all run by `npm run check`, which CI runs on every pull request. Node 24 or later.
+An agent that runs under both harnesses declares it in both files. To update a plugin, change the commit. To remove one, delete its entries.
+
+Agents that copied a skill from an earlier version of this repository have it in `.agents/skills/<skill>` and `.claude/skills/<skill>`. Delete both when adding the plugin, or the agent loads the skill twice.
+
+## Testing
+
+Tests go in `test/`, outside the plugins so they never reach an agent. The setup is Bishop's: vitest for tests, Biome for linting and formatting, and `tsc` for typechecking, all run by `npm run check`, which CI runs on every pull request. Node 24 or later.
 
 ```sh
 npm install
 npm run check
 ```
 
-A test runs the script the way an agent does, with `runScript` in `test/support/script.ts`, and asserts on its exit status, output, and what it left on disk. `test/support/git.ts` makes real repositories in temp directories, with a bare repository on a local path standing in for the remote, so nothing reaches the network. Both run git with the developer's own git config shut out.
+`test/manifests.test.ts` fails when the Claude and Codex manifests disagree about a plugin. A plugin's scripts get tests in `test/<plugin>/`. A test runs a script the way an agent does, with `runScript` in `test/support/script.ts`, and asserts on its exit status, output, and what it left on disk. `test/support/git.ts` makes real repositories in temp directories, with a bare repository on a local path standing in for the remote, so nothing reaches the network. Both run git with the developer's own git config shut out.
 
 ## bishop-memory
 

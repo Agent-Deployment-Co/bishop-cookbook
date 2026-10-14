@@ -1,7 +1,7 @@
 {
   "name": "bishop-cookbook",
   "private": true,
-  "description": "Skills for agents running under Bishop, and the tests for their scripts.",
+  "description": "Plugins for agents running under Bishop, and the tests for them.",
   "license": "UNLICENSED",
   "type": "module",
   "engines": {

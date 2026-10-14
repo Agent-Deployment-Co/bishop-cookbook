@@ -2,7 +2,23 @@
 
 `CLAUDE.md` is a symlink to this file, so Claude and Codex both read it.
 
-Skills for agents running under [Bishop](https://github.com/Agent-Deployment-Co/bishop). Each top-level directory except `test` is one skill, and an operator copies it into an agent's repository whole, so everything in it ships to the agent and nothing else does.
+Plugins for agents running under [Bishop](https://github.com/Agent-Deployment-Co/bishop). The repository is one marketplace that Claude and Codex both install from. Each directory in `plugins/` is one plugin, and the harness copies it whole into its cache, so everything in it ships to the agent and nothing else does.
+
+## Layout
+
+```
+.claude-plugin/marketplace.json     Claude's marketplace
+.agents/plugins/marketplace.json    Codex's marketplace
+plugins/<plugin>/
+  .claude-plugin/plugin.json        Claude's manifest
+  .codex-plugin/plugin.json         Codex's manifest, identical to Claude's
+  skills/<skill>/SKILL.md           loaded by both
+```
+
+- **Both marketplaces list every plugin**, under the same marketplace name, since an agent enables a plugin as `<plugin>@bishop-cookbook` in either harness.
+- **Both manifests are the same file.** Keep them to fields both harnesses accept: `name`, `version`, `description`, `author`, and `repository`. Both find `skills/` without a `skills` field.
+- **Bump `version` in both manifests whenever a plugin changes.** Codex keeps one cached copy per plugin and replaces it only when the version changes, so an agent pinned to a new commit keeps the old copy otherwise.
+- `test/manifests.test.ts` fails when any of this drifts.
 
 ## Writing a skill
 
@@ -17,10 +33,10 @@ Skills for agents running under [Bishop](https://github.com/Agent-Deployment-Co/
 
 `npm run check` runs Biome, `tsc`, and vitest, and CI runs it on every pull request. Node 24 or later.
 
-Tests for a skill's scripts go in `test/<skill>/`, never inside the skill's directory. `runScript` in `test/support/script.ts` runs a script the way an agent does. `test/support/git.ts` builds real repositories with a local bare remote, so tests never reach the network. Both shut out the developer's git config. A test that proves a fix should fail with the fix removed: check that before trusting it.
+Tests for a plugin's scripts go in `test/<plugin>/`, never inside the plugin. `runScript` in `test/support/script.ts` runs a script the way an agent does. `test/support/git.ts` builds real repositories with a local bare remote, so tests never reach the network. Both shut out the developer's git config. A test that proves a fix should fail with the fix removed: check that before trusting it.
 
 ## Docs
 
-The README lists every skill and says what each needs from the agent's repository and host. A change an operator would notice updates it.
+The README lists every plugin and says what each needs from the agent's repository and host. A change an operator would notice updates it.
 
 Write plainly and briefly, in active voice, leading with what something does before how. No em-dashes, no filler, and no hard-wrapped markdown: one paragraph is one line.
