@@ -24,7 +24,7 @@ To update a skill, follow the same steps. Replacing the directory rather than co
 
 The agent keeps one Markdown note per topic in a checkout of a `memory` branch, which shares no history with the agent's own files. Every conversation on the host reads and writes that one checkout, so a note saved in one thread is there for the next without a fetch. Each save is a commit saying what was learned and who taught it, pushed to the remote, so the history is a log of what the agent was taught and any change can be undone. Because memory lives on its own branch, saving never moves the branch Bishop runs the agent from, and the agent's own branch can stay protected.
 
-`memory.sh` makes every change, holding a `flock` lock so concurrent saves on one host take turns. It pulls before each save and refuses one made against a version of the topic that has since changed. A save that can't be pushed stays on the host and goes out with the next one.
+`memory.sh` makes every change, holding a `flock` lock so concurrent saves on one host take turns. It pulls before each save and refuses one made against a version of the topic that has since changed. A save that can't be pushed stays on the host and goes out with the next one. If something else changed the same topic before it went out, the remote's version wins: the save is kept on a `refs/memory/set-aside/*` ref in the checkout and handed back to the agent to merge.
 
 ### Setting it up
 

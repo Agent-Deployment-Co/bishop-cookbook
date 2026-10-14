@@ -38,17 +38,37 @@ lock() {
   flock -w 30 9 || die 'another save has held memory for 30 seconds; try again shortly'
 }
 
-# Brings in saves pushed from other machines. A conflict means an earlier save
-# from here never reached the remote and now disagrees with it, which a person
-# has to sort out. An unreachable remote only costs freshness.
+rebasing() { [ -d "$gitdir/rebase-merge" ] || [ -d "$gitdir/rebase-apply" ]; }
+
+# Brings in saves pushed from other machines. An unreachable remote only costs
+# freshness.
+#
+# A conflict means a save made here never reached the remote before something
+# else changed the same topic. The remote's version wins and the save is set
+# aside on a ref and handed back to the agent to merge, because leaving the
+# rebase for a person would refuse every later save on this host until then.
 sync() {
-  local out
+  local out c aside=()
   if out=$(git -C "$mem" pull --quiet --rebase --autostash 2>&1); then return; fi
-  if [ -d "$gitdir/rebase-merge" ] || [ -d "$gitdir/rebase-apply" ]; then
-    git -C "$mem" rebase --abort >/dev/null 2>&1 || true
-    die "memory here and on the remote disagree and need someone to reconcile them in $mem: $out"
+  if ! rebasing; then
+    printf "memory: couldn't fetch, saving on top of this machine's copy: %s\n" "$out" >&2
+    return
   fi
-  printf "memory: couldn't fetch, saving on top of this machine's copy: %s\n" "$out" >&2
+  while rebasing; do
+    c=$(git -C "$mem" rev-parse REBASE_HEAD)
+    git -C "$mem" update-ref "refs/memory/set-aside/$c" "$c"
+    aside+=("$c")
+    git -C "$mem" rebase --skip >/dev/null 2>&1 && continue
+    if rebasing && [ "$(git -C "$mem" rev-parse REBASE_HEAD)" = "$c" ]; then
+      git -C "$mem" rebase --abort >/dev/null 2>&1 || true
+      die "memory here and on the remote disagree and need someone to reconcile them in $mem"
+    fi
+  done
+  {
+    echo 'memory: these saves from here conflicted with changes made elsewhere and were set aside. Read each topic again, merge in what they said, and save it:'
+    for c in "${aside[@]}"; do git -C "$mem" show --format='%n%B' "$c"; done
+  } >&2
+  exit 3
 }
 
 # Commits only the named path, so anything else left in the checkout stays out.
