@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Changes the shared memory checkout at $AGENT_MEMORY, one writer at a time.
+# Changes the shared memory checkout at $AGENT_MEMORY_HOME, one writer at a time.
 #
+#   memory.sh path                                     print the checkout's directory
 #   memory.sh version <topic>                          print a topic's version, or "new"
 #   memory.sh save <topic> <version> <subject> <by>    replace a topic with stdin
 #   memory.sh forget <topic> <version> <subject> <by>  delete a topic
@@ -14,12 +15,42 @@ die() {
   exit "${2:-1}"
 }
 
-usage() { die 'usage: memory.sh version|save|forget|undo ... (see SKILL.md)' 2; }
+usage() { die 'usage: memory.sh path|version|save|forget|undo ... (see SKILL.md)' 2; }
 
-mem=${AGENT_MEMORY:-}
-[ -n "$mem" ] || die 'AGENT_MEMORY is not set, so there is no memory checkout to use'
-git -C "$mem" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "AGENT_MEMORY names $mem, which is not a git checkout"
+branch=${AGENT_MEMORY_BRANCH:-memory}
+mem=${AGENT_MEMORY_HOME:-}
+
+# Clones the memory branch of the agent's own repository on first use. The
+# lock keeps two conversations from cloning into one directory at once.
+clone() {
+  local origin=$1 out
+  mkdir -p "$(dirname "$mem")" || die "couldn't create the directory holding $mem"
+  exec 8>"$(dirname "$mem")/.$(basename "$mem").lock"
+  command -v flock >/dev/null || die 'flock is not installed'
+  flock -w 120 8 || die 'another conversation has been setting up memory for two minutes; try again shortly'
+  if [ ! -e "$mem" ] && ! out=$(git clone --quiet --single-branch --branch "$branch" -- "$origin" "$mem" 2>&1); then
+    rm -rf -- "$mem"
+    die "couldn't clone the $branch branch of $origin into $mem: $out"
+  fi
+  exec 8>&-
+}
+
+# The default is named after the agent's repository, so two agents on one
+# host never share a checkout.
+if [ -z "$mem" ]; then
+  origin=$(git remote get-url origin 2>/dev/null) ||
+    die 'AGENT_MEMORY_HOME is not set and the working directory has no origin remote, so there is no memory checkout to use'
+  repo=${origin%/}
+  repo=${repo%.git}
+  owner=${repo%/*}
+  mem="${XDG_DATA_HOME:-$HOME/.local/share}/bishop-memory/${owner##*[/:]}-${repo##*/}"
+  [ -e "$mem" ] || clone "$origin"
+fi
+
+git -C "$mem" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "$mem is not a git checkout"
 gitdir=$(git -C "$mem" rev-parse --absolute-git-dir)
+current=$(git -C "$mem" symbolic-ref --quiet --short HEAD || echo 'a detached HEAD')
+[ "$current" = "$branch" ] || die "$mem has $current checked out rather than the $branch branch"
 
 topic_file() {
   [[ $1 =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || die "a topic is lowercase words joined by hyphens, not \"$1\"" 2
@@ -49,7 +80,7 @@ rebasing() { [ -d "$gitdir/rebase-merge" ] || [ -d "$gitdir/rebase-apply" ]; }
 # rebase for a person would refuse every later save on this host until then.
 sync() {
   local out c aside=()
-  if out=$(git -C "$mem" pull --quiet --rebase --autostash 2>&1); then return; fi
+  if out=$(git -C "$mem" pull --quiet --rebase --autostash origin "$branch" 2>&1); then return; fi
   if ! rebasing; then
     printf "memory: couldn't fetch, saving on top of this machine's copy: %s\n" "$out" >&2
     return
@@ -86,9 +117,9 @@ commit() {
 # machine already reads it, and the next save pushes it along with its own.
 publish() {
   local out
-  if out=$(git -C "$mem" push --quiet origin HEAD 2>&1); then return; fi
+  if out=$(git -C "$mem" push --quiet origin "HEAD:refs/heads/$branch" 2>&1); then return; fi
   sync
-  if out=$(git -C "$mem" push --quiet origin HEAD 2>&1); then return; fi
+  if out=$(git -C "$mem" push --quiet origin "HEAD:refs/heads/$branch" 2>&1); then return; fi
   printf "memory: saved on this machine but couldn't push, the next save will try again: %s\n" "$out" >&2
 }
 
@@ -99,6 +130,10 @@ check_version() {
 cmd=${1:-}
 [ $# -gt 0 ] && shift
 case $cmd in
+  path)
+    [ $# -eq 0 ] || usage
+    printf '%s\n' "$mem"
+    ;;
   version)
     [ $# -eq 1 ] || usage
     version_of "$(topic_file "$1")"
