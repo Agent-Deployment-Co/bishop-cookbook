@@ -4,7 +4,7 @@ Plugins for agents running under [Bishop](https://bishop.agentdeployment.co). Th
 
 | Plugin | What it does |
 |---|---|
-| [`bishop-memory`](plugins/bishop-memory/skills/bishop-memory/SKILL.md) | Remembers what people teach the agent across every conversation, kept as Markdown notes on a `memory` branch apart from the agent's own files. |
+| [`bishop-memory`](plugins/bishop-memory/skills/memory/SKILL.md) | Remembers what people teach the agent across every conversation, kept as Markdown notes on a `memory` branch apart from the agent's own files. |
 
 ## Adding a plugin to an agent
 
@@ -51,7 +51,7 @@ enabled = true
 
 An agent that runs under both harnesses declares it in both files. To update a plugin, change the commit. To remove one, delete its entries.
 
-Agents that copied a skill from an earlier version of this repository have it in `.agents/skills/<skill>` and `.claude/skills/<skill>`. Delete both when adding the plugin, or the agent loads the skill twice.
+An agent that copied memory from an earlier version of this repository has it in `.agents/skills/bishop-memory` and `.claude/skills/bishop-memory`. Delete both when adding the plugin, or the agent loads it twice.
 
 ## Testing
 
