@@ -5,6 +5,7 @@ Plugins for agents running under [Bishop](https://bishop.agentdeployment.co). Th
 | Plugin | What it does |
 |---|---|
 | [`bishop-memory`](plugins/bishop-memory/skills/memory/SKILL.md) | Remembers what people teach the agent across every conversation, kept as Markdown notes on a `memory` branch apart from the agent's own files. |
+| [`bishop-notion`](plugins/bishop-notion/skills/notion/SKILL.md) | Searches, reads, and writes the team's Notion pages and databases through the agent's own Notion connection. |
 
 ## Adding a plugin to an agent
 
@@ -104,3 +105,21 @@ Version 1 of this plugin read `AGENT_MEMORY`. Rename it to `AGENT_MEMORY_HOME`, 
 ### Moving from notes on the default branch
 
 Earlier versions kept notes under `memory/` on the default branch. Copy those files into the new checkout, commit and push them there, then delete `memory/` from the default branch.
+
+## bishop-notion
+
+The agent reaches Notion through its REST API as its own internal Notion connection, not as any person, so it sees only the pages and databases shared with that connection. It searches page titles, reads pages as Markdown, queries databases, and creates and edits pages and rows. It writes only when someone asks, and confirms before rewriting a whole page. It never deletes content, trashes pages, or changes a database's schema unless someone asks for that change.
+
+`notion.sh` makes every call. It reads the token from `NOTION_TOKEN`, pins the Notion API version, and retries rate limits and brief gateway errors. The token goes to curl in a header file in the temp directory, never on the command line, and the file is deleted when the call ends.
+
+### Setting it up
+
+1. In Notion's [developer portal](https://app.notion.com/developers/connections), create an **internal** connection for the agent. Under Capabilities, turn on only what it should do: usually **Read content**, **Update content**, and **Insert content**, with comments off and **No user information** (or user info without email).
+2. Put its token in `NOTION_TOKEN` in Bishop's `.env`, then restart Bishop. The agent inherits Bishop's environment. Keep the token out of the agent's repository and out of chat.
+3. Share pages with it: on each top-level page or teamspace page the agent should use, open `•••` → **Connections** and add the connection. Pages under a shared page inherit access.
+
+Until `NOTION_TOKEN` is set, the agent tells people Notion isn't connected yet.
+
+The host needs `curl` and `jq`. Bishop's container image has both. Under `agent.sandbox` there is nothing to grant: the script writes only to the temp directory, and the sandbox leaves the network open.
+
+An agent that copied this skill into `.claude/skills/notion` or `.agents/skills/notion` has it twice once the plugin is enabled. Delete the copy when adding the plugin.

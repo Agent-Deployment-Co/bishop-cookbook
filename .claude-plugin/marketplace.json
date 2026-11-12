@@ -7,6 +7,11 @@
       "name": "bishop-memory",
       "source": "./plugins/bishop-memory",
       "description": "Remembers what people teach the agent across every conversation, kept as Markdown notes on a memory branch apart from the agent's own files."
+    },
+    {
+      "name": "bishop-notion",
+      "source": "./plugins/bishop-notion",
+      "description": "Searches, reads, and writes the team's Notion pages and databases through the agent's own Notion connection."
     }
   ]
 }

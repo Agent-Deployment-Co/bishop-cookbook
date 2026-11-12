@@ -1,0 +1,9 @@
+{
+  "name": "bishop-notion",
+  "version": "1.0.0",
+  "description": "Searches, reads, and writes the team's Notion pages and databases through the agent's own Notion connection.",
+  "author": {
+    "name": "Agent Deployment Co"
+  },
+  "repository": "https://github.com/Agent-Deployment-Co/bishop-cookbook"
+}
