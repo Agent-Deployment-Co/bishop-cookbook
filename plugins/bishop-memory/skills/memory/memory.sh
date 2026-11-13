@@ -45,7 +45,7 @@ clone() {
 # host never share a checkout.
 if [ -z "$mem" ]; then
   origin=$(git remote get-url origin 2>/dev/null) ||
-    die 'AGENT_MEMORY_HOME is not set and the working directory has no origin remote, so there is no memory checkout to use'
+    die 'AGENT_MEMORY_HOME is not set and the working directory has no origin remote, so there is no memory checkout to use; run this from the directory you started in, or from inside your memory directory'
   repo=${origin%/}
   repo=${repo%.git}
   owner=${repo%/*}

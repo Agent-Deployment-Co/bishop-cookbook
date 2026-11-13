@@ -387,6 +387,30 @@ describe('where memory lives', () => {
     expect(await onRemote(remote, 'billing')).toBe(topic('Billing', 'finance@'))
   })
 
+  // The skill runs every command after `path` from inside the checkout, so an
+  // agent whose shell has wandered into another repository still finds it.
+  it('finds the same checkout when run from inside it', async () => {
+    const remote = await bareRemote(BRANCH)
+    const env = { XDG_DATA_HOME: await tempDir('cookbook-data-') }
+    const path = (await memory(await agentRepo(remote), ['path'], env)).stdout.trim()
+
+    expect((await memory(path, ['path'], env)).stdout.trim()).toBe(path)
+    const saved = await memory(
+      path,
+      ['save', 'billing', 'new', 'Invoices', 'Dana'],
+      env,
+      topic('Billing', 'finance@'),
+    )
+    expect(saved.code).toBe(0)
+    expect(await onRemote(remote, 'billing')).toBe(topic('Billing', 'finance@'))
+  })
+
+  it('says where to run it from when run outside any repository', async () => {
+    const result = await memory(await tempDir('cookbook-elsewhere-'), ['path'])
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain('run this from the directory you started in')
+  })
+
   it('names the default after the owner and repository in a GitHub URL', async () => {
     const data = await tempDir('cookbook-data-')
     const agent = await agentRepo(join(await tempDir(), 'acme', 'agent.git'))
